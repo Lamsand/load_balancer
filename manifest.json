@@ -1,0 +1,10 @@
+{
+  "manifest_version": 2,
+  "domain": "brightness_from_surplus",
+  "name": "Brightness from Solar Surplus",
+  "codeowners": ["@lamsand"],
+  "config_flow": true,
+  "documentation": "https://github.com/lamsand/brightness_from_surplus",
+  "requirements": [],
+  "version": "1.0.0"
+}
