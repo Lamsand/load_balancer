@@ -8,7 +8,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfPower
+from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfElectricCurrent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
@@ -27,11 +27,11 @@ SENSOR_DESCRIPTIONS = (
         icon="mdi:solar-power-variant",
     ),
     SensorEntityDescription(
-        key="calculated_brightness_percent",
-        name="Calculated Current Limit Percentage",
-        native_unit_of_measurement=PERCENTAGE,
+        key="calculated_current",
+        name="Calculated Current Limit",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:file-percent",
+        icon="mdi:flash",
     ),
     SensorEntityDescription(
         key="timer_disable_time",

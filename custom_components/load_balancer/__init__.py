@@ -11,7 +11,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 
-from .custom_components.load_balancer.const import DOMAIN
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
