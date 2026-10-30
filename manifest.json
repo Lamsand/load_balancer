@@ -1,10 +1,10 @@
 {
   "manifest_version": 2,
-  "domain": "brightness_from_surplus",
-  "name": "Brightness from Solar Surplus",
+  "domain": "load_balancer",
+  "name": "Load Balancer",
   "codeowners": ["@lamsand"],
   "config_flow": true,
-  "documentation": "https://github.com/lamsand/brightness_from_surplus",
+  "documentation": "https://github.com/lamsand/load_balancer",
   "requirements": [],
   "version": "1.0.0"
 }

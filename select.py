@@ -1,4 +1,4 @@
-"""Select entity for brightness_from_surplus integration."""
+"""Select entity for the load_balancer integration."""
 
 import logging
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
@@ -52,7 +52,7 @@ class ModeSelect(SelectEntity):
         
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Brightness from Surplus",
+            name="Load Balancer",
             manufacturer="Custom",
         )
         
@@ -70,4 +70,3 @@ class ModeSelect(SelectEntity):
         
         # Schrijf de gekozen modus direct live weg naar het gedeelde geheugen
         self.hass.data[DOMAIN]["current_mode"] = option
-

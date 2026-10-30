@@ -1,4 +1,4 @@
-"""Number entity for brightness_from_surplus integration."""
+"""Number entity for the load_balancer integration."""
 
 import logging
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
@@ -69,13 +69,13 @@ async def async_setup_entry(
     _LOGGER.debug("Setting up number platform")
     
     async_add_entities(
-        BrightnessNumberEntity(hass, entry, description)
+        LoadBalancerNumberEntity(hass, entry, description)
         for description in ENTITY_DESCRIPTIONS
     )
 
 
-class BrightnessNumberEntity(NumberEntity):
-    """Generic number entity for brightness_from_surplus."""
+class LoadBalancerNumberEntity(NumberEntity):
+    """Generic number entity for the load_balancer integration."""
 
     entity_description: NumberEntityDescription
 
@@ -92,7 +92,7 @@ class BrightnessNumberEntity(NumberEntity):
         
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Brightness from Surplus",
+            name="Load Balancer",
             manufacturer="Custom",
         )
         

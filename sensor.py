@@ -1,4 +1,4 @@
-"""Sensor platform for brightness_from_surplus integration."""
+"""Sensor platform for the load_balancer integration."""
 
 import logging
 from homeassistant.components.sensor import (
@@ -57,12 +57,12 @@ async def async_setup_entry(
     _LOGGER.debug("Setting up sensor platform")
     
     async_add_entities(
-        BrightnessSensorEntity(hass, entry, description)
+        LoadBalancerSensorEntity(hass, entry, description)
         for description in SENSOR_DESCRIPTIONS
     )
 
 
-class BrightnessSensorEntity(SensorEntity):
+class LoadBalancerSensorEntity(SensorEntity):
     """Representation of a calculation sensor."""
 
     entity_description: SensorEntityDescription
@@ -82,7 +82,7 @@ class BrightnessSensorEntity(SensorEntity):
         # Koppel aan hetzelfde apparaat als de rest
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Brightness from Surplus",
+            name="Load Balancer",
             manufacturer="Custom",
         )
         

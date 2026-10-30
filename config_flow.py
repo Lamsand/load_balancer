@@ -49,7 +49,7 @@ class LoadBalancerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         if user_input is not None:
             return self.async_create_entry(
-                title="Load balancer",
+                title="Load Balancer",
                 data=user_input,
             )
 
