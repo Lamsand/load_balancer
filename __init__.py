@@ -1,4 +1,4 @@
-"""Brightness from Solar Surplus integration."""
+"""Load balancer integration."""
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -23,15 +23,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config = {**entry.data, **entry.options}
 
     smart_meter_sensor = config.get("smart_meter_sensor")
-    lamp_entity = config.get("lamp_entity")
+    active_charging_load_sensor = config.get("active_charging_load_sensor")
+    current_limit_entity = config.get(
+        "current_limit_entity", config.get("current_limit_entity")
+    )
 
-    if not smart_meter_sensor or not lamp_entity:
+    if not smart_meter_sensor or not current_limit_entity or not active_charging_load_sensor:
         _LOGGER.error("Required entities missing in configuration")
+        return False
+
+    if not current_limit_entity.startswith("number."):
+        _LOGGER.error(
+            "Current limit entity must be a number entity: %s",
+            current_limit_entity,
+        )
         return False
 
     runtime_data = {
         "calculated_surplus": 0.0,
-        "calculated_brightness_percent": 0.0,
+        "calculated_current": 0.0,
         "sensor_entities": [],
         "definitively_off": True,
         "timer_disable_time": None,
@@ -45,8 +55,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     mode_entity = f"select.{DOMAIN}_mode"
-    max_surplus_entity = f"number.{DOMAIN}_max_surplus"
-    custom_brightness_entity = f"number.{DOMAIN}_custom_brightness"
+    max_current_entity = f"number.{DOMAIN}_max_current"
+    min_current_entity = f"number.{DOMAIN}_min_current"
+    custom_current_entity = f"number.{DOMAIN}_custom_current"
     enable_threshold_entity = f"number.{DOMAIN}_enable_threshold"
     disable_threshold_entity = f"number.{DOMAIN}_disable_threshold"
 
@@ -69,8 +80,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cancel_disable_timer()
         cancel_enable_timer()
 
-    async def async_recalculate_and_update_light():
-        """Recalculate target brightness and drive the light entity."""
+    async def async_recalculate_and_update_current_limit():
+        """Recalculate the target current limit and update its number entity."""
         meter_state = hass.states.get(smart_meter_sensor)
         if not meter_state or meter_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
@@ -83,21 +94,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         surplus_w = max(0.0, -(power_w))
         now = datetime.now(timezone.utc)
 
+        active_charging_load_state = hass.states.get(active_charging_load_sensor)
+        if not active_charging_load_state or active_charging_load_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return
+        try:
+            active_charging_load = float(active_charging_load_state.state)
+        except ValueError:
+            return
+
         # 1. Haal UI entiteiten op
         mode_state = hass.states.get(mode_entity)
         mode = mode_state.state if mode_state and mode_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else config.get("mode", "PV")
 
-        max_surplus_state = hass.states.get(max_surplus_entity)
+        max_current_state = hass.states.get(max_current_entity)
         try:
-            max_surplus = float(max_surplus_state.state) if max_surplus_state and max_surplus_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("max_surplus", 3000))
+            max_current = float(max_current_state.state) if max_current_state and max_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("max_current", 3000))
         except ValueError:
-            max_surplus = float(config.get("max_surplus", 3000))
+            max_current = float(config.get("max_current", 3000))
 
-        custom_brightness_state = hass.states.get(custom_brightness_entity)
+        min_current_state = hass.states.get(min_current_entity)
         try:
-            custom_brightness = float(custom_brightness_state.state) if custom_brightness_state and custom_brightness_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("custom_lamp_brightness", 20))
+            min_current = float(min_current_state.state) if min_current_state and min_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("min_current", 3000))
         except ValueError:
-            custom_brightness = float(config.get("custom_lamp_brightness", 20))
+            min_current = float(config.get("min_current", 3000))
+
+        custom_current_state = hass.states.get(custom_current_entity)
+        try:
+            custom_current = float(custom_current_state.state) if custom_current_state and custom_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("custom_current", 20))
+        except ValueError:
+            custom_current = float(config.get("custom_current", 20))
 
         # Drempelwaardes voor inschakelen en uitschakelen (klaar voor uitbreiding)
         enable_threshold_state = hass.states.get(enable_threshold_entity)   # bijv. float(config.get("enable_threshold", 100))
@@ -116,7 +141,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if mode == "Off":
             cancel_all_timers()
             runtime_data["definitively_off"] = True
-            brightness_pct = 0.0
+            current = 0.0
 
         elif mode == "PV":
             # VOORWAARDE 1: Aangaan!
@@ -131,34 +156,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         # Start een nieuwe inschakeltimer van 1 minuut
                         target_enable = now + timedelta(minutes=1)
                         runtime_data["timer_enable_time"] = target_enable
-                        brightness_pct = 0.0
+                        current = 0.0
 
                         @callback
                         def _enable_timer_expired(_):
-                            hass.async_create_task(async_recalculate_and_update_light())
+                            hass.async_create_task(async_recalculate_and_update_current_limit())
 
                         runtime_data["unsub_enable_timer"] = async_track_point_in_time(
                             hass, _enable_timer_expired, target_enable
                         )
                     else:
                         if now < timer_enable:
-                            brightness_pct = 0.0
+                            current = 0.0
                         else:
                             # Inschakeltimer voorbij -> Lamp gaat AAN
                             cancel_enable_timer()
                             runtime_data["definitively_off"] = False
-                            brightness_pct = max(1.0, min(100.0, (surplus_w / max_surplus) * 100.0))
+                            current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
                 else:
                     # Lamp is al aan -> direct helderheid schalen
                     cancel_enable_timer()
-                    brightness_pct = max(1.0, min(100.0, (surplus_w / max_surplus) * 100.0))
+                    current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
 
             # VOORWAARDE 2: Uitgaan
             elif power_w > disable_threshold_w:
                 cancel_enable_timer()  # Inschakeltimer afbreken indien actief
 
                 if runtime_data["definitively_off"]:
-                    brightness_pct = 0.0
+                    current = 0.0
                 else:
                     # Lamp is aan -> controleer/start uitschakeltimer
                     timer_disable = runtime_data.get("timer_disable_time")
@@ -167,83 +192,79 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         # Start een nieuwe uitschakeltimer van 3 minuten
                         target_disable = now + timedelta(minutes=3)
                         runtime_data["timer_disable_time"] = target_disable
-                        brightness_pct = 1.0
+                        current = min_current
 
                         @callback
                         def _disable_timer_expired(_):
-                            hass.async_create_task(async_recalculate_and_update_light())
+                            hass.async_create_task(async_recalculate_and_update_current_limit())
 
                         runtime_data["unsub_disable_timer"] = async_track_point_in_time(
                             hass, _disable_timer_expired, target_disable
                         )
                     else:
                         if now < timer_disable:
-                            brightness_pct = 1.0
+                            current = min_current
                         else:
                             # Uitschakeltimer voorbij -> Lamp gaat UIT
                             cancel_disable_timer()
                             runtime_data["definitively_off"] = True
-                            brightness_pct = 0.0
+                            current = 0.0
 
             # VOORWAARDE 3: Aan of uit houden
             else:
                 cancel_all_timers()
                 if runtime_data["definitively_off"]:
-                    brightness_pct = 0.0
+                    current = 0.0
                 else:
-                    brightness_pct = min(100.0, (surplus_w / max_surplus) * 100.0) if max_surplus > 0 else 1.0
+                    current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
 
         elif mode == "Min+PV":
             cancel_all_timers()
             runtime_data["definitively_off"] = False
-            brightness_pct = max(50.0, min(100.0, (surplus_w / max_surplus) * 100.0)) if max_surplus > 0 else 50.0
+            current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
 
         elif mode == "Fast":
             cancel_all_timers()
             runtime_data["definitively_off"] = False
-            brightness_pct = 100.0
+            current = max_current
 
         elif mode == "Custom":
             cancel_all_timers()
             runtime_data["definitively_off"] = False
-            brightness_pct = custom_brightness
+            if custom_current != 0.0:
+                current = max(custom_current, min_current)
+            else: 
+                current = 0.0
 
         else:
             cancel_all_timers()
-            brightness_pct = 0.0
-
-        brightness_255 = int((brightness_pct / 100.0) * 255)
+            current = 0.0
 
         # 3. Update de sensoren van de integratie
         runtime_data["calculated_surplus"] = round(surplus_w, 1)
-        runtime_data["calculated_brightness_percent"] = round(brightness_pct, 1)
+        runtime_data["calculated_current"] = current
 
         for sensor in runtime_data["sensor_entities"]:
             sensor.async_write_ha_state()
 
         # 4. Stuur de lamp aan
-        if brightness_255 == 0:
-            await hass.services.async_call(
-                "light", "turn_off", {"entity_id": lamp_entity}, blocking=False
-            )
-        else:
-            await hass.services.async_call(
-                "light",
-                "turn_on",
-                {"entity_id": lamp_entity, "brightness": brightness_255},
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": current_limit_entity, "value": current},
                 blocking=False,
-            )
+        )
 
     @callback
     def state_change_listener(event):
         """Handle state change triggers safely."""
-        hass.async_create_task(async_recalculate_and_update_light())
+        hass.async_create_task(async_recalculate_and_update_current_limit())
 
     tracked_entities = [
         smart_meter_sensor,
+        active_charging_load_sensor,
         mode_entity,
-        max_surplus_entity,
-        custom_brightness_entity,
+        max_current_entity,
+        min_current_entity,
+        custom_current_entity,
         enable_threshold_entity,
         disable_threshold_entity,
     ]
@@ -253,7 +274,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     runtime_data["unsub_listeners"] = [unsub_track, unsub_options]
 
-    hass.async_create_task(async_recalculate_and_update_light())
+    hass.async_create_task(async_recalculate_and_update_current_limit())
 
     return True
 

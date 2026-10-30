@@ -28,7 +28,7 @@ SENSOR_DESCRIPTIONS = (
     ),
     SensorEntityDescription(
         key="calculated_brightness_percent",
-        name="Calculated Lamp Percentage",
+        name="Calculated Current Limit Percentage",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:file-percent",
