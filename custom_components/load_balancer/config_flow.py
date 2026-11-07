@@ -22,19 +22,30 @@ def get_data_schema() -> vol.Schema:
                 selector.EntitySelectorConfig(domain="number")
             ),
             vol.Optional("max_current"): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.0, max=32.0, step=0.1, mode=selector.NumberSelectorMode.BOX)
+                selector.NumberSelectorConfig(
+                    min=0.0, max=32.0, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )
             ),
             vol.Optional("min_current"): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.0, max=32.0, step=0.1, mode=selector.NumberSelectorMode.BOX)
+                selector.NumberSelectorConfig(
+                    min=0.0, max=32.0, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )
             ),
             vol.Optional("mode"): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=["Off", "PV", "Min+PV", "Fast", "Custom"],
-                    mode=selector.SelectSelectorMode.DROPDOWN
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
             vol.Optional("custom_current"): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.0, max=32.0, step=0.1, mode=selector.NumberSelectorMode.SLIDER)
+                selector.NumberSelectorConfig(
+                    min=0.0, max=32.0, step=0.1, mode=selector.NumberSelectorMode.SLIDER
+                )
+            ),
+            vol.Optional("absolute_upper_bound"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=12000, step=10, mode=selector.NumberSelectorMode.BOX
+                )
             ),
         }
     )

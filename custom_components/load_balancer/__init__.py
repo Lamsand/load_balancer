@@ -15,7 +15,12 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.NUMBER, Platform.SELECT, Platform.SENSOR]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -28,7 +33,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "current_limit_entity", config.get("current_limit_entity")
     )
 
-    if not smart_meter_sensor or not current_limit_entity or not active_charging_load_sensor:
+    if (
+        not smart_meter_sensor
+        or not current_limit_entity
+        or not active_charging_load_sensor
+    ):
         _LOGGER.error("Required entities missing in configuration")
         return False
 
@@ -42,8 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data = {
         "calculated_surplus": 0.0,
         "calculated_current": 0.0,
-        "sensor_entities": [],
+        "entities_to_update": [],
         "definitively_off": True,
+        "above_absolute_upper_bound": False,
         "timer_disable_time": None,
         "timer_enable_time": None,
         "unsub_disable_timer": None,
@@ -58,6 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     max_current_entity = f"number.{DOMAIN}_max_current"
     min_current_entity = f"number.{DOMAIN}_min_current"
     custom_current_entity = f"number.{DOMAIN}_custom_current"
+    absolute_upper_bound_entity = f"number.{DOMAIN}_absolute_upper_bound"
     enable_threshold_entity = f"number.{DOMAIN}_enable_threshold"
     disable_threshold_entity = f"number.{DOMAIN}_disable_threshold"
 
@@ -95,7 +106,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         now = datetime.now(timezone.utc)
 
         active_charging_load_state = hass.states.get(active_charging_load_sensor)
-        if not active_charging_load_state or active_charging_load_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not active_charging_load_state or active_charging_load_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        ):
             return
         try:
             active_charging_load = float(active_charging_load_state.state)
@@ -104,39 +118,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # 1. Haal UI entiteiten op
         mode_state = hass.states.get(mode_entity)
-        mode = mode_state.state if mode_state and mode_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else config.get("mode", "PV")
+        mode = (
+            mode_state.state
+            if mode_state and mode_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            else config.get("mode", "PV")
+        )
 
         max_current_state = hass.states.get(max_current_entity)
         try:
-            max_current = float(max_current_state.state) if max_current_state and max_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("max_current", 3000))
+            max_current = (
+                float(max_current_state.state)
+                if max_current_state
+                and max_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                else float(config.get("max_current", 3000))
+            )
         except ValueError:
             max_current = float(config.get("max_current", 3000))
 
         min_current_state = hass.states.get(min_current_entity)
         try:
-            min_current = float(min_current_state.state) if min_current_state and min_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("min_current", 3000))
+            min_current = (
+                float(min_current_state.state)
+                if min_current_state
+                and min_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                else float(config.get("min_current", 3000))
+            )
         except ValueError:
             min_current = float(config.get("min_current", 3000))
 
         custom_current_state = hass.states.get(custom_current_entity)
         try:
-            custom_current = float(custom_current_state.state) if custom_current_state and custom_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else float(config.get("custom_current", 20))
+            custom_current = (
+                float(custom_current_state.state)
+                if custom_current_state
+                and custom_current_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                else float(config.get("custom_current", 12000))
+            )
         except ValueError:
-            custom_current = float(config.get("custom_current", 20))
+            custom_current = float(config.get("custom_current", 12000))
+
+        absolute_upper_bound_state = hass.states.get(absolute_upper_bound_entity)
+        try:
+            absolute_upper_bound = (
+                float(absolute_upper_bound_state.state)
+                if absolute_upper_bound_state
+                and absolute_upper_bound_state.state
+                not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                else float(config.get("absolute_upper_bound", 20))
+            )
+        except ValueError:
+            absolute_upper_bound = float(config.get("absolute_upper_bound", 20))
 
         # Drempelwaardes voor inschakelen en uitschakelen (klaar voor uitbreiding)
-        enable_threshold_state = hass.states.get(enable_threshold_entity)   # bijv. float(config.get("enable_threshold", 100))
+        enable_threshold_state = hass.states.get(enable_threshold_entity)
         try:
-            enable_threshold_w = float(enable_threshold_state.state) if enable_threshold_state and enable_threshold_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else 0
+            enable_threshold_w = (
+                float(enable_threshold_state.state)
+                if enable_threshold_state
+                and enable_threshold_state.state
+                not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                else 0
+            )
         except ValueError:
             enable_threshold_w = 0
 
-        disable_threshold_state = hass.states.get(disable_threshold_entity)  # bijv. float(config.get("disable_threshold", 0))
+        disable_threshold_state = hass.states.get(disable_threshold_entity)
         try:
-            disable_threshold_w = float(disable_threshold_state.state) if disable_threshold_state and disable_threshold_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else 0
+            disable_threshold_w = (
+                float(disable_threshold_state.state)
+                if disable_threshold_state
+                and disable_threshold_state.state
+                not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                else 0
+            )
         except ValueError:
             disable_threshold_w = 0
-            
+
         # 2. Bepaal gewenste helderheid op basis van modus
         if mode == "Off":
             cancel_all_timers()
@@ -160,7 +217,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         @callback
                         def _enable_timer_expired(_):
-                            hass.async_create_task(async_recalculate_and_update_current_limit())
+                            hass.async_create_task(
+                                async_recalculate_and_update_current_limit()
+                            )
 
                         runtime_data["unsub_enable_timer"] = async_track_point_in_time(
                             hass, _enable_timer_expired, target_enable
@@ -172,11 +231,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # Inschakeltimer voorbij -> Lamp gaat AAN
                             cancel_enable_timer()
                             runtime_data["definitively_off"] = False
-                            current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
+                            current = max(
+                                min_current,
+                                min(
+                                    max_current,
+                                    float((power_w - active_charging_load) / (-230)),
+                                ),
+                            )
                 else:
                     # Lamp is al aan -> direct helderheid schalen
                     cancel_enable_timer()
-                    current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
+                    current = max(
+                        min_current,
+                        min(
+                            max_current,
+                            float((power_w - active_charging_load) / (-230)),
+                        ),
+                    )
 
             # VOORWAARDE 2: Uitgaan
             elif power_w > disable_threshold_w:
@@ -196,7 +267,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         @callback
                         def _disable_timer_expired(_):
-                            hass.async_create_task(async_recalculate_and_update_current_limit())
+                            hass.async_create_task(
+                                async_recalculate_and_update_current_limit()
+                            )
 
                         runtime_data["unsub_disable_timer"] = async_track_point_in_time(
                             hass, _disable_timer_expired, target_disable
@@ -216,12 +289,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if runtime_data["definitively_off"]:
                     current = 0.0
                 else:
-                    current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
+                    current = max(
+                        min_current,
+                        min(
+                            max_current,
+                            float((power_w - active_charging_load) / (-230)),
+                        ),
+                    )
 
         elif mode == "Min+PV":
             cancel_all_timers()
             runtime_data["definitively_off"] = False
-            current = max(min_current, min(max_current, float((power_w - active_charging_load) / (-230))))
+            current = max(
+                min_current,
+                min(max_current, float((power_w - active_charging_load) / (-230))),
+            )
 
         elif mode == "Fast":
             cancel_all_timers()
@@ -233,24 +315,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             runtime_data["definitively_off"] = False
             if custom_current != 0.0:
                 current = max(custom_current, min_current)
-            else: 
+            else:
                 current = 0.0
 
         else:
             cancel_all_timers()
             current = 0.0
 
+        if (
+            active_charging_load > 0
+        ):  # Als er een actieve laadstroom is, controleer of we boven de absolute bovengrens zitten
+            if power_w > absolute_upper_bound:
+                runtime_data["above_absolute_upper_bound"] = True
+                current = 0.0
+            else:
+                runtime_data["above_absolute_upper_bound"] = False
+        else:  # Als er geen actieve laadstroom is, controleer of we boven de absolute bovengrens zouden zitten, wanneer we de minimale stroom zouden toepassen
+            if power_w + min_current * 230 > absolute_upper_bound:
+                runtime_data["above_absolute_upper_bound"] = current > 0
+                current = 0.0
+            else:
+                runtime_data["above_absolute_upper_bound"] = False
+
         # 3. Update de sensoren van de integratie
         runtime_data["calculated_surplus"] = round(surplus_w, 1)
         runtime_data["calculated_current"] = current
 
-        for sensor in runtime_data["sensor_entities"]:
-            sensor.async_write_ha_state()
+        for entity in runtime_data["entities_to_update"]:
+            entity.async_write_ha_state()
 
-        # 4. Stuur de lamp aan
+        # 4. Stuur de laadpaal aan
         await hass.services.async_call(
-            "number", "set_value", {"entity_id": current_limit_entity, "value": current},
-                blocking=False,
+            "number",
+            "set_value",
+            {"entity_id": current_limit_entity, "value": current},
+            blocking=False,
         )
 
     @callback
@@ -265,11 +364,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         max_current_entity,
         min_current_entity,
         custom_current_entity,
+        absolute_upper_bound_entity,
         enable_threshold_entity,
         disable_threshold_entity,
     ]
 
-    unsub_track = async_track_state_change_event(hass, tracked_entities, state_change_listener)
+    unsub_track = async_track_state_change_event(
+        hass, tracked_entities, state_change_listener
+    )
     unsub_options = entry.add_update_listener(async_reload_entry)
 
     runtime_data["unsub_listeners"] = [unsub_track, unsub_options]

@@ -22,9 +22,9 @@ ENTITY_DESCRIPTIONS = (
         icon="mdi:flash",
     ),
     NumberEntityDescription(
-        key="min_current",  
-        name="Min Current",  
-        native_unit_of_measurement="A", 
+        key="min_current",
+        name="Min Current",
+        native_unit_of_measurement="A",
         native_min_value=0.0,
         native_max_value=32.0,
         native_step=0.1,
@@ -38,6 +38,15 @@ ENTITY_DESCRIPTIONS = (
         native_max_value=32.0,
         native_step=0.1,
         icon="mdi:flash-outline",
+    ),
+    NumberEntityDescription(
+        key="absolute_upper_bound",
+        name="Absolute upper bound",
+        native_unit_of_measurement="W",
+        native_min_value=0,
+        native_max_value=12000,
+        native_step=10,
+        icon="mdi:flash",
     ),
     NumberEntityDescription(
         key="enable_threshold",
@@ -67,7 +76,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up number entities from a config entry."""
     _LOGGER.debug("Setting up number platform")
-    
+
     async_add_entities(
         LoadBalancerNumberEntity(hass, entry, description)
         for description in ENTITY_DESCRIPTIONS
@@ -80,37 +89,37 @@ class LoadBalancerNumberEntity(NumberEntity):
     entity_description: NumberEntityDescription
 
     def __init__(
-        self, 
-        hass: HomeAssistant, 
-        entry: ConfigEntry, 
-        description: NumberEntityDescription
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        description: NumberEntityDescription,
     ):
         """Initialize the number entity."""
         self.hass = hass
         self.entity_description = description
         self._attr_unique_id = f"{DOMAIN}_{description.key}"
-        
+
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Load Balancer",
             manufacturer="Custom",
         )
-        
+
         # Look into entry data AND options seamlessly
         config = {**entry.data, **entry.options}
-        
+
         # Get defaults safely for every key
         if description.key == "max_surplus":
             default = config.get("max_surplus", 3000)
         elif description.key == "min_current":
             default = config.get("min_current", 6.0)
-        elif description.key == "custom_lamp_brightness":
-            default = config.get("custom_lamp_brightness", 20)
+        elif description.key == "absolute_upper_bound":
+            default = config.get("absolute_upper_bound", 12000)
         else:
             default = 0
-        
+
         self._attr_native_value = float(default)
-        
+
         # Seed the shared runtime dictionary right away so __init__.py has it on boot
         if DOMAIN in self.hass.data:
             self.hass.data[DOMAIN][f"current_{description.key}"] = float(default)
@@ -120,7 +129,7 @@ class LoadBalancerNumberEntity(NumberEntity):
         self._attr_native_value = value
         self.async_write_ha_state()
         _LOGGER.info(f"{self.entity_description.name} changed to {value}")
-        
+
         # Safely store into shared runtime state
         if DOMAIN in self.hass.data:
             self.hass.data[DOMAIN][f"current_{self.entity_description.key}"] = value

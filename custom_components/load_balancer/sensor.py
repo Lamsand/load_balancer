@@ -88,7 +88,7 @@ class LoadBalancerSensorEntity(SensorEntity):
         
         # Voeg deze entiteit toe aan de live-update lijst in __init__.py
         if DOMAIN in self.hass.data and entry.entry_id in self.hass.data[DOMAIN]:
-            self.hass.data[DOMAIN][entry.entry_id]["sensor_entities"].append(self)
+            self.hass.data[DOMAIN][entry.entry_id]["entities_to_update"].append(self)
 
     @property
     def native_value(self) -> float:
