@@ -1,7 +1,7 @@
 """Number entity for the load_balancer integration."""
 
 import logging
-from homeassistant.components.number import NumberEntity, NumberEntityDescription
+from homeassistant.components.number import NumberEntityDescription, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -68,6 +68,15 @@ ENTITY_DESCRIPTIONS = (
     ),
 )
 
+DEFAULT_VALUES = {
+    "max_current": 0.0,
+    "min_current": 6.0,
+    "custom_current": 0.0,
+    "absolute_upper_bound": 12000.0,
+    "enable_threshold": 0.0,
+    "disable_threshold": 0.0,
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -83,7 +92,7 @@ async def async_setup_entry(
     )
 
 
-class LoadBalancerNumberEntity(NumberEntity):
+class LoadBalancerNumberEntity(RestoreNumber):
     """Generic number entity for the load_balancer integration."""
 
     entity_description: NumberEntityDescription
@@ -108,21 +117,20 @@ class LoadBalancerNumberEntity(NumberEntity):
         # Look into entry data AND options seamlessly
         config = {**entry.data, **entry.options}
 
-        # Get defaults safely for every key
-        if description.key == "max_surplus":
-            default = config.get("max_surplus", 3000)
-        elif description.key == "min_current":
-            default = config.get("min_current", 6.0)
-        elif description.key == "absolute_upper_bound":
-            default = config.get("absolute_upper_bound", 12000)
-        else:
-            default = 0
-
+        default = config.get(description.key, DEFAULT_VALUES[description.key])
         self._attr_native_value = float(default)
 
         # Seed the shared runtime dictionary right away so __init__.py has it on boot
         if DOMAIN in self.hass.data:
             self.hass.data[DOMAIN][f"current_{description.key}"] = float(default)
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last value when one was saved by Home Assistant."""
+        await super().async_added_to_hass()
+
+        if (last_number_data := await self.async_get_last_number_data()) is not None:
+            if last_number_data.native_value is not None:
+                self._attr_native_value = last_number_data.native_value
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
