@@ -58,6 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "timer_enable_time": None,
         "unsub_disable_timer": None,
         "unsub_enable_timer": None,
+        "last_above_absolute_upper_bound": None,
     }
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime_data
@@ -322,20 +323,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             cancel_all_timers()
             current = 0.0
 
-        if (
-            active_charging_load > 0
-        ):  # Als er een actieve laadstroom is, controleer of we boven de absolute bovengrens zitten
+        if active_charging_load > 0:  # Als er een actieve laadstroom is, controleer of we boven de absolute bovengrens zitten
             if power_w > absolute_upper_bound:
                 runtime_data["above_absolute_upper_bound"] = True
+                runtime_data["last_above_absolute_upper_bound"] = now
                 current = 0.0
             else:
                 runtime_data["above_absolute_upper_bound"] = False
-        else:  # Als er geen actieve laadstroom is, controleer of we boven de absolute bovengrens zouden zitten, wanneer we de minimale stroom zouden toepassen
-            if power_w + min_current * 230 > absolute_upper_bound:
+        else:  # Als er geen actieve laadstroom is, controleer of we boven de absolute bovengrens zouden zitten, wanneer we de stroom zouden toepassen
+            if power_w + current * 230 > absolute_upper_bound:
                 runtime_data["above_absolute_upper_bound"] = current > 0
+                runtime_data["last_above_absolute_upper_bound"] = now
                 current = 0.0
             else:
                 runtime_data["above_absolute_upper_bound"] = False
+        
+        last_above_absolute_upper_bound = runtime_data[
+            "last_above_absolute_upper_bound"
+        ]
+        if (
+            last_above_absolute_upper_bound is not None
+            and last_above_absolute_upper_bound + timedelta(minutes=1) > now
+        ):
+            current = 0.0
 
         # 3. Update de sensoren van de integratie
         runtime_data["calculated_surplus"] = round(surplus_w, 1)
